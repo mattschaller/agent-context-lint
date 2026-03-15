@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { ParsedFile } from './parser.js';
@@ -247,6 +248,126 @@ export function checkContradictions(
               message: `${message} (conflicts with line ${a.line})`,
             });
           }
+        }
+      }
+    }
+  }
+
+  return findings;
+}
+
+const SHELL_BUILTINS = new Set([
+  'cd', 'export', 'echo', 'source', 'set', 'unset', 'alias', 'unalias',
+  'type', 'readonly', 'declare', 'local', 'eval', 'exec', 'trap',
+  'return', 'exit', 'shift', 'wait', 'read', 'pushd', 'popd', 'dirs',
+  'ulimit', 'umask', 'getopts', 'hash', 'pwd', 'test', 'true', 'false',
+  'printf', 'let', 'if', 'then', 'else', 'fi', 'for', 'do', 'done',
+  'while', 'until', 'case', 'esac', 'in', 'function',
+]);
+
+const SHELL_LANGS = new Set(['bash', 'sh', 'shell']);
+
+export function checkCommands(
+  parsed: ParsedFile,
+  filePath: string,
+): LintFinding[] {
+  const findings: LintFinding[] = [];
+  const cache = new Map<string, boolean>();
+
+  for (const block of parsed.codeBlocks) {
+    if (!SHELL_LANGS.has(block.lang)) continue;
+
+    const lines = block.content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i].trim();
+      if (!line || line.startsWith('#')) continue;
+      // Strip prompt prefixes
+      if (line.startsWith('$ ') || line.startsWith('> ')) {
+        line = line.slice(2).trim();
+      }
+      if (!line) continue;
+
+      const cmd = line.split(/\s/)[0];
+      if (!cmd || SHELL_BUILTINS.has(cmd)) continue;
+      // Skip environment variable assignments
+      if (/^[A-Z_]+=/.test(cmd)) continue;
+
+      if (!cache.has(cmd)) {
+        try {
+          execFileSync('which', [cmd], { stdio: 'pipe' });
+          cache.set(cmd, true);
+        } catch {
+          cache.set(cmd, false);
+        }
+      }
+
+      if (!cache.get(cmd)) {
+        findings.push({
+          file: filePath,
+          rule: 'check:commands',
+          line: block.line + 1 + i,
+          column: 1,
+          severity: 'warning',
+          message: `Command not found on system: "${cmd}"`,
+        });
+      }
+    }
+  }
+
+  return findings;
+}
+
+const JS_LANGS = new Set(['ts', 'js', 'typescript', 'javascript', 'tsx', 'jsx']);
+const IMPORT_FROM_RE = /(?:import\s+.*?\s+from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs', '.cjs'];
+
+function resolveModule(base: string, importPath: string): boolean {
+  const resolved = resolve(base, importPath);
+
+  // Exact match
+  if (existsSync(resolved) && !resolved.endsWith('/')) return true;
+
+  // Try extension fallbacks
+  for (const ext of EXTENSIONS) {
+    if (existsSync(resolved + ext)) return true;
+  }
+
+  // Try index files
+  for (const ext of EXTENSIONS) {
+    if (existsSync(resolve(resolved, 'index' + ext))) return true;
+  }
+
+  return false;
+}
+
+export function checkImports(
+  parsed: ParsedFile,
+  filePath: string,
+): LintFinding[] {
+  const findings: LintFinding[] = [];
+  const baseDir = dirname(filePath);
+
+  for (const block of parsed.codeBlocks) {
+    if (!JS_LANGS.has(block.lang)) continue;
+
+    const lines = block.content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      let match: RegExpExecArray | null;
+      IMPORT_FROM_RE.lastIndex = 0;
+      while ((match = IMPORT_FROM_RE.exec(lines[i])) !== null) {
+        const importPath = match[1] || match[2];
+        // Only check relative imports
+        if (!importPath.startsWith('./') && !importPath.startsWith('../')) continue;
+
+        if (!resolveModule(baseDir, importPath)) {
+          findings.push({
+            file: filePath,
+            rule: 'check:imports',
+            line: block.line + 1 + i,
+            column: match.index + 1,
+            severity: 'error',
+            message: `Import path does not resolve: "${importPath}"`,
+          });
         }
       }
     }

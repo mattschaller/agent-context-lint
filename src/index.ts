@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 import {
+  checkCommands,
   checkContradictions,
+  checkImports,
   checkPaths,
   checkRequiredSections,
   checkScripts,
@@ -20,6 +22,8 @@ export { parseFile } from './parser.js';
 export { computeScore } from './scorer.js';
 export { loadConfig } from './config.js';
 export { formatJson, formatText } from './reporter.js';
+export { fixFile } from './fixer.js';
+export type { FixResult, FixChange } from './fixer.js';
 
 export function lintFile(filePath: string, cwd: string): FileResult {
   const config = loadConfig(cwd);
@@ -33,6 +37,8 @@ export function lintFile(filePath: string, cwd: string): FileResult {
     ...checkRequiredSections(parsed, filePath, config),
     ...checkStaleDates(parsed, filePath, config),
     ...checkContradictions(parsed, filePath),
+    ...checkCommands(parsed, filePath),
+    ...checkImports(parsed, filePath),
   ];
 
   return {

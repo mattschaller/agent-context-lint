@@ -28,6 +28,8 @@ No existing tool does both structural validation (do referenced paths and script
 |------|----------|----------------|
 | `check:paths` | error | File/directory paths mentioned in context file that don't exist on disk |
 | `check:scripts` | error | npm/pnpm/yarn/bun scripts referenced that aren't in package.json |
+| `check:imports` | error | Relative import paths in code blocks that don't resolve to a file |
+| `check:commands` | warning | Shell commands in bash code blocks not found on the system |
 
 ### Layer 2 — Semantic quality
 
@@ -55,14 +57,22 @@ Each file gets a **0–100 quality score** based on findings.
 ## CLI options
 
 ```
-npx agent-context-lint                  # auto-discover and lint all context files
-npx agent-context-lint CLAUDE.md        # lint a specific file
-npx agent-context-lint --format json    # machine-readable output for CI
-npx agent-context-lint --json           # shorthand for --format json
-npx agent-context-lint -V               # show version
+npx agent-context-lint                    # auto-discover and lint all context files
+npx agent-context-lint CLAUDE.md          # lint a specific file
+npx agent-context-lint --format json      # machine-readable output for CI
+npx agent-context-lint --json             # shorthand for --format json
+npx agent-context-lint --fix CLAUDE.md    # auto-fix safe issues then lint
+npx agent-context-lint -V                 # show version
 ```
 
 Exit code 1 on any error (CI-compatible).
+
+### `--fix`
+
+Automatically fixes safe issues before linting:
+- Trailing whitespace
+- Multiple consecutive blank lines (collapsed to one)
+- Missing trailing newline
 
 ## Configuration
 
@@ -97,6 +107,17 @@ const fileResult = lintFile('./CLAUDE.md', process.cwd());
 - [@carlrannaberg/cclint](https://github.com/carlrannaberg/cclint) — Claude Code-specific. Not useful for AGENTS.md or .cursorrules.
 
 agent-context-lint combines both structural and semantic checks in a single tool.
+
+## GitHub Action
+
+```yaml
+- uses: mattschaller/agent-context-lint@v0
+  with:
+    files: 'CLAUDE.md AGENTS.md'  # optional, auto-discovers if omitted
+    format: text                   # text (default) or json
+```
+
+Exits with code 1 on errors, making it suitable as a required status check.
 
 ## Contributing
 

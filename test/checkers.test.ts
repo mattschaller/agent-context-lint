@@ -11,6 +11,8 @@ import {
   checkRequiredSections,
   checkStaleDates,
   checkContradictions,
+  checkCommands,
+  checkImports,
 } from '../src/checkers.js';
 import { DEFAULT_CONFIG } from '../src/types.js';
 
@@ -239,6 +241,173 @@ describe('checkContradictions', () => {
       const findings = checkContradictions(parsed, filePath);
       expect(findings).toHaveLength(1);
       expect(findings[0].rule).toBe('check:contradictions');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('checkCommands', () => {
+  it('flags unknown commands in bash blocks', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Setup\n\n```bash\nthis_command_does_not_exist_xyz --flag\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkCommands(parsed, filePath);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].rule).toBe('check:commands');
+      expect(findings[0].severity).toBe('warning');
+      expect(findings[0].message).toContain('this_command_does_not_exist_xyz');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('passes for known commands', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Setup\n\n```bash\nnode --version\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkCommands(parsed, filePath);
+      expect(findings).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('skips shell builtins', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Setup\n\n```bash\ncd src\nexport FOO=bar\necho hello\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkCommands(parsed, filePath);
+      expect(findings).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('skips comments, empty lines, and prompt prefixes', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Setup\n\n```bash\n# a comment\n\n$ node --version\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkCommands(parsed, filePath);
+      expect(findings).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ignores non-shell code blocks', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Setup\n\n```typescript\nthis_command_does_not_exist_xyz()\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkCommands(parsed, filePath);
+      expect(findings).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('checkImports', () => {
+  it('flags broken relative imports', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Code\n\n```ts\nimport { foo } from \'./missing-module\';\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkImports(parsed, filePath);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].rule).toBe('check:imports');
+      expect(findings[0].severity).toBe('error');
+      expect(findings[0].message).toContain('./missing-module');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('passes for existing relative imports', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Code\n\n```ts\nimport { foo } from \'./helper\';\n```\n',
+      'helper.ts': 'export const foo = 1;',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkImports(parsed, filePath);
+      expect(findings).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('resolves index files', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Code\n\n```ts\nimport { foo } from \'./utils\';\n```\n',
+      'utils/index.ts': 'export const foo = 1;',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkImports(parsed, filePath);
+      expect(findings).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('skips bare specifiers (npm packages)', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Code\n\n```ts\nimport express from \'express\';\nimport { join } from \'node:path\';\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkImports(parsed, filePath);
+      expect(findings).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('handles require() calls', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Code\n\n```js\nconst mod = require(\'./nonexistent\');\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkImports(parsed, filePath);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].message).toContain('./nonexistent');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ignores non-JS code blocks', () => {
+    const dir = setup({
+      'CLAUDE.md': '# Code\n\n```python\nimport os\n```\n',
+    });
+    try {
+      const filePath = join(dir, 'CLAUDE.md');
+      const parsed = parseFile(filePath);
+      const findings = checkImports(parsed, filePath);
+      expect(findings).toHaveLength(0);
     } finally {
       cleanup();
     }

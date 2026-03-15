@@ -1,6 +1,6 @@
 {
   "name": "agent-context-lint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lint AI coding agent context files (AGENTS.md, CLAUDE.md, .cursorrules, copilot-instructions.md) for staleness, broken paths, and semantic quality issues.",
   "keywords": [
     "agents-md",
@@ -34,7 +34,8 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "action.yml"
   ],
   "scripts": {
     "build": "tsup",

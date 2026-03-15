@@ -1,0 +1,14 @@
+name: agent-context-lint
+description: Lint AI coding agent context files for staleness, broken paths, and semantic quality issues
+inputs:
+  files:
+    description: Space-separated list of files to lint (default: auto-discover)
+    required: false
+    default: ''
+  format:
+    description: Output format (text or json)
+    required: false
+    default: text
+runs:
+  using: node20
+  main: dist/cli.js
